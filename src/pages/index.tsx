@@ -1,13 +1,19 @@
 import type { NextPage } from "next";
-import { useState } from "react";
+import { Dispatch, SetStateAction, useState } from "react";
 import Head from "next/head";
 import Image from "next/image";
 import { v4 as uuid } from "uuid";
+interface Event<T = EventTarget> {
+  target: T;
+}
 
 const Home: NextPage = () => {
   const [formState, setFormState] = useState("open");
-  const [files, setFile] = useState<FileList[]>([]);
+  const [files, setFile] = useState<File[]>([]);
   const [message, setMessage] = useState("");
+  const [todoToEditTitle, setTodoToEditTitle] = useState("");
+  const [todoToEditContent, setTodoToEditContent] = useState("");
+  const [todoToEdit, setTodoToEdit] = useState<Todo>();
   const [showModal, setShowModal] = useState(false);
   const [todos, setTodos] = useState<Todo[]>([
     {
@@ -23,7 +29,11 @@ const Home: NextPage = () => {
       status: "done",
     },
   ]);
-  const handleShowModal = (showModal: boolean) => {
+
+  const handleShowModal = (showModal: boolean, todo: Todo | null = null) => {
+    if (todo) {
+      setTodoToEdit(todo);
+    }
     setShowModal(showModal);
   };
 
@@ -35,14 +45,24 @@ const Home: NextPage = () => {
     });
     setTodos(newTodos);
   };
+
   const handleEdit = (todo: Todo) => {
     // TODO: EDIT Todo on DB with react.query
 
+    const updatedTodo: Todo = {
+      id: todo.id,
+      todoTitle: todoToEditTitle || todo.todoTitle,
+      todoContent: todoToEditContent || todo.todoContent,
+      todoImages: todo.todoImages ? [...todo.todoImages] : [],
+      status: "open",
+    };
     const newTodos = todos.map(function (obj) {
-      const res = obj.id !== todo.id ? obj : todo;
+      const res = obj.id !== todo.id ? obj : updatedTodo;
+      console.log(res);
       return res;
     });
     setTodos(newTodos);
+    setShowModal(false);
   };
 
   const handleFinish = (todo: Todo) => {
@@ -57,40 +77,50 @@ const Home: NextPage = () => {
     setTodos(newTodos);
   };
 
-  const handleFile = (e) => {
+  const handleFile = (e: Event<HTMLInputElement>) => {
     setMessage("");
-    const file = e.target.files;
-    for (let i = 0; i < file.length; i++) {
-      const fileType = file[i]["type"];
-      const validImageTypes = ["image/gif", "image/jpeg", "image/png"];
-      if (validImageTypes.includes(fileType)) {
-        setFile([...files, file[i]]);
-      } else {
-        setMessage("only images accepted");
+    const newFiles = e.target.files;
+    if (!newFiles) return;
+    for (let i = 0; i < newFiles.length; i++) {
+      const newFile = newFiles[i];
+      if (newFile !== undefined) {
+        const fileType = newFile.type ?? "invalidFormat";
+        const validImageTypes = ["image/gif", "image/jpeg", "image/png"];
+        if (validImageTypes.includes(fileType)) {
+          setFile([...files, newFile]);
+        } else {
+          setMessage("only images accepted");
+        }
       }
     }
   };
-  const removeImage = (i) => {
+
+  const removeImage = (i: string) => {
     setFile(files.filter((x) => x.name !== i));
   };
 
-  const submitForm = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const submitForm = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const myHeaders = new Headers();
     const todo: Todo = {
       id: uuid(),
-      todoTitle: event.target.todoTitle.value,
-      todoContent: event.target.todoContent.value,
+      todoTitle: event.currentTarget.todoTitle.value,
+      todoContent: event.currentTarget.todoContent.value,
       todoImages: [...files],
       status: "open",
     };
 
     const formData = new FormData();
     Object.entries(todo).forEach(([key, value]) => {
-      formData.append(key, value);
+      if (typeof value === "string") return formData.append(key, value);
     });
 
-    const requestOptions = {
+    for (let i = 0; i < Math.min(todo?.todoImages?.length ?? 0, 5); i++) {
+      const blob = todo?.todoImages?.[i];
+      if (blob) formData.append("uploads", blob);
+    }
+
+    const requestOptions: RequestInit = {
       method: "POST",
       headers: myHeaders,
       body: formData,
@@ -116,6 +146,7 @@ const Home: NextPage = () => {
       console.log(e);
     }
   };
+
   return (
     <>
       <Head>
@@ -127,8 +158,14 @@ const Home: NextPage = () => {
         <h1 className="text-5xl font-extrabold leading-normal text-gray-700 md:text-[5rem]">
           magna<span className="text-purple-300">Todo</span>
         </h1>
-        {showModal ? (
-          <TodoEdit setShowModal={handleShowModal} handleEdit={handleEdit} />
+        {showModal && todoToEdit ? (
+          <TodoEdit
+            setShowModal={handleShowModal}
+            setTodoToEditTitle={setTodoToEditTitle}
+            setTodoToEditContent={setTodoToEditContent}
+            handleEdit={handleEdit}
+            todo={todoToEdit}
+          />
         ) : null}
         <div className="flex w-full items-start space-x-10">
           <div className="mt-10 flex w-1/2 flex-col items-start">
@@ -172,13 +209,13 @@ type Todo = {
   todoTitle: string;
   todoContent: string;
   status: string;
-  todoImages?: FileList[];
+  todoImages?: File[];
 };
 
 type TodoCardProps = {
   todo: Todo;
   handleRemove: Handler;
-  handleShowModal: (showModal: boolean) => void;
+  handleShowModal: (showModal: boolean, todo: Todo | null) => void;
   handleFinish: Handler;
 };
 
@@ -212,7 +249,7 @@ const TodoCard: React.FC<TodoCardProps> = ({
           {todo.todoContent}
         </p>
         <div className="mt-12 flex w-full items-center justify-end space-x-2">
-          {todo?.todoImages?.map((file, i) => {
+          {todo?.todoImages?.map((image, i) => {
             return (
               <div
                 key={i}
@@ -225,7 +262,7 @@ const TodoCard: React.FC<TodoCardProps> = ({
                   height="50"
                   alt=""
                   className="h-full w-full rounded"
-                  src={URL.createObjectURL(file)}
+                  src={URL.createObjectURL(image)}
                 />
               </div>
             );
@@ -243,7 +280,7 @@ const TodoCard: React.FC<TodoCardProps> = ({
             </label>
           </div>
           <a
-            onClick={() => handleShowModal(true)}
+            onClick={() => handleShowModal(true, todo)}
             // style={{}}
             className={`inline-flex cursor-pointer  items-center rounded-lg bg-cyan-700 py-2 px-3 text-center text-sm font-medium text-white hover:bg-cyan-800 focus:outline-none focus:ring-4 focus:ring-cyan-300 dark:bg-cyan-600 dark:hover:bg-cyan-700 dark:focus:ring-cyan-800 
             ${todo.status === "done" ? "pointer-events-none opacity-30" : ""}`}
@@ -265,10 +302,10 @@ const TodoCard: React.FC<TodoCardProps> = ({
 type TodoFormProps = {
   formState: string;
   message: string;
-  files: FileList[];
-  submitForm: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
-  handleFile: Handler;
-  removeImage: Handler;
+  files: File[];
+  submitForm: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
+  handleFile: (e: Event<HTMLInputElement>) => void;
+  removeImage: (name: string) => void;
 };
 
 const TodoForm: React.FC<TodoFormProps> = ({
@@ -280,7 +317,7 @@ const TodoForm: React.FC<TodoFormProps> = ({
   removeImage,
 }) => {
   const successResponseMessageHead = "Your Todo has been added!";
-  const successRresponseMessageBody = "It will show up in a bit...";
+  const successRresponseMessageBody = "It should show on the right 👉🏽";
   const errorResponseMessageHead = "This didn't work";
   const errorResponseMessageBody =
     "Unfortunately, we couldn't process your request. Please try again...";
@@ -374,7 +411,7 @@ const TodoForm: React.FC<TodoFormProps> = ({
             </div>
             <div className="mt-4 w-full rounded-md">
               <div className="mt-2 flex flex-wrap gap-2">
-                {files.map((file, key) => {
+                {files.map((file: File, key) => {
                   return (
                     <div
                       key={key}
@@ -465,9 +502,9 @@ const TodoForm: React.FC<TodoFormProps> = ({
           )}
           <button
             type="submit"
-            className="inline-flex justify-center rounded-md border border-transparent bg-indigo-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            className="inline-flex justify-center rounded-md border border-transparent bg-purple-400 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-purple-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
           >
-            Save
+            SAVE
           </button>
         </div>
       </div>
@@ -478,11 +515,15 @@ const TodoForm: React.FC<TodoFormProps> = ({
 type TodoEditProps = {
   todo: Todo;
   setShowModal: (showModal: boolean) => void;
+  setTodoToEditTitle: Dispatch<SetStateAction<string>>;
+  setTodoToEditContent: Dispatch<SetStateAction<string>>;
   handleEdit: Handler;
 };
 
 const TodoEdit: React.FC<TodoEditProps> = ({
   todo,
+  setTodoToEditTitle,
+  setTodoToEditContent,
   setShowModal,
   handleEdit,
 }) => {
@@ -521,6 +562,7 @@ const TodoEdit: React.FC<TodoEditProps> = ({
                       name="todoTitle"
                       type="text"
                       defaultValue={todo?.todoTitle}
+                      onChange={(e) => setTodoToEditTitle(e.target.value)}
                       placeholder="Title for your todo..."
                       className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-400 dark:bg-gray-500 dark:text-white dark:placeholder-gray-400 dark:focus:border-blue-500 dark:focus:ring-blue-500"
                     />
@@ -541,6 +583,7 @@ const TodoEdit: React.FC<TodoEditProps> = ({
                     name="todoContent"
                     id="message"
                     defaultValue={todo?.todoContent}
+                    onChange={(e) => setTodoToEditContent(e.target.value)}
                     rows={4}
                     className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-400 dark:bg-gray-500 dark:text-white dark:placeholder-gray-400 dark:focus:border-blue-500 dark:focus:ring-blue-500"
                     placeholder="Leave a comment..."
@@ -559,9 +602,9 @@ const TodoEdit: React.FC<TodoEditProps> = ({
                 CANCEL
               </button>
               <button
-                onClick={() => setShowModal(false)}
+                onClick={() => handleEdit(todo)}
                 type="button"
-                className="rounded border-b-4 border-green-700 bg-green-500 px-4 py-2 font-bold text-white hover:border-green-500 hover:bg-green-400"
+                className="rounded border-b-4 border-purple-700 bg-purple-500 px-4 py-2 font-bold text-white hover:border-purple-500 hover:bg-purple-400"
               >
                 SAVE
               </button>
