@@ -20,4 +20,7 @@ export default defineNextConfig({
     locales: ["en"],
     defaultLocale: "en",
   },
+  images: {
+    domains: ["magnatools-demo-test-bucket-2.s3.eu-central-1.amazonaws.com"],
+  },
 });

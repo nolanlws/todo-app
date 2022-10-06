@@ -1,21 +1,48 @@
 import type { NextPage } from "next";
 import { Dispatch, SetStateAction, useState } from "react";
+import axios from "axios";
 import Head from "next/head";
 import Image from "next/image";
 import { v4 as uuid } from "uuid";
+import { useMutation, useQuery, useQueryClient } from "react-query";
+
 interface Event<T = EventTarget> {
   target: T;
 }
 
 const Home: NextPage = () => {
-  const [formState, setFormState] = useState("open");
-  const [files, setFile] = useState<File[]>([]);
-  const [message, setMessage] = useState("");
-  const [todoToEditTitle, setTodoToEditTitle] = useState("");
-  const [todoToEditContent, setTodoToEditContent] = useState("");
-  const [todoToEdit, setTodoToEdit] = useState<Todo>();
-  const [showModal, setShowModal] = useState(false);
-  const [todos, setTodos] = useState<Todo[]>([
+  const qc = useQueryClient();
+  const fetchTodos = async () => {
+    const res = await axios.get("http://localhost:8888/api/todos");
+    return res.data;
+  };
+  const addTodo = async (formData: FormData) => {
+    const res = await axios.post("http://localhost:8888/api/todos", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
+    return res.data;
+  };
+  const editTodo = async (todo: Todo) => {
+    const res = await axios.patch(
+      "http://localhost:8888/api/todos/" + todo.id,
+      todo
+    );
+    return res.data;
+  };
+  const updateTodo = async (todo: Todo) => {
+    const res = await axios.patch(
+      "http://localhost:8888/api/todos/" + todo.id,
+      { status: todo.status }
+    );
+    return res.data;
+  };
+  const deleteTodo = async (todoId: string) => {
+    const res = await axios.delete("http://localhost:8888/api/todos/" + todoId);
+    return res.data;
+  };
+  const defaultTodos = [
     {
       id: uuid(),
       todoTitle: "Finish DB Architecture",
@@ -28,7 +55,64 @@ const Home: NextPage = () => {
       todoContent: "We have to finish the POC",
       status: "done",
     },
-  ]);
+  ];
+
+  const {
+    data: todos = defaultTodos,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<Todo[]>(["todos"], fetchTodos);
+  const [formState, setFormState] = useState("open");
+  const [files, setFile] = useState<FileDetails[]>([]);
+  const [message, setMessage] = useState("");
+  const [todoToEditTitle, setTodoToEditTitle] = useState("");
+  const [todoToEditContent, setTodoToEditContent] = useState("");
+  const [todoToEdit, setTodoToEdit] = useState<Todo>();
+  const [showModal, setShowModal] = useState(false);
+
+  const { mutate: addTodoMutation } = useMutation(
+    (formData: FormData) => addTodo(formData),
+    {
+      onSuccess: (data) => {
+        (document?.getElementById("todoForm") as HTMLFormElement)?.reset();
+        setFile([]);
+        setFormState("sent");
+        qc.setQueryData(["todos"], [...todos, data]);
+      },
+      onError: (data) => {
+        console.log(data);
+        setFormState("error");
+      },
+    }
+  );
+  const { mutate: deleteTodoMutation } = useMutation(
+    (todoId: string) => deleteTodo(todoId),
+    {
+      onSuccess: () => {
+        refetch();
+      },
+    }
+  );
+  const { mutate: updateTodoMutation } = useMutation(
+    (todo: Todo) => updateTodo(todo),
+    {
+      onSuccess: () => {
+        refetch();
+      },
+    }
+  );
+  const { mutate: editTodoMutation } = useMutation(
+    (todo: Todo) => editTodo(todo),
+    {
+      onSuccess: () => {
+        refetch();
+      },
+    }
+  );
+
+  if (isLoading) return <div>Loading...</div>;
+  if (isError) return <div>Error!</div>;
 
   const handleShowModal = (showModal: boolean, todo: Todo | null = null) => {
     if (todo) {
@@ -38,43 +122,23 @@ const Home: NextPage = () => {
   };
 
   const handleRemove = (todo: Todo) => {
-    // TODO: REMOVE Todo from DB react.query
-
-    const newTodos = todos.filter(function (obj) {
-      return obj.id !== todo.id;
-    });
-    setTodos(newTodos);
+    if (todo?.id) deleteTodoMutation(todo.id);
   };
 
   const handleEdit = (todo: Todo) => {
-    // TODO: EDIT Todo on DB with react.query
-
     const updatedTodo: Todo = {
       id: todo.id,
       todoTitle: todoToEditTitle || todo.todoTitle,
       todoContent: todoToEditContent || todo.todoContent,
-      todoImages: todo.todoImages ? [...todo.todoImages] : [],
       status: "open",
     };
-    const newTodos = todos.map(function (obj) {
-      const res = obj.id !== todo.id ? obj : updatedTodo;
-      console.log(res);
-      return res;
-    });
-    setTodos(newTodos);
+    editTodoMutation(updatedTodo);
     setShowModal(false);
   };
 
   const handleFinish = (todo: Todo) => {
-    // TODO: EDIT Todo on DB with react.query
-
-    const newTodos = todos.map(function (obj) {
-      if (obj.id === todo.id) {
-        obj["status"] = obj.status === "done" ? "open" : "done";
-      }
-      return obj;
-    });
-    setTodos(newTodos);
+    todo["status"] = todo.status === "done" ? "open" : "done";
+    updateTodoMutation(todo);
   };
 
   const handleFile = (e: Event<HTMLInputElement>) => {
@@ -84,13 +148,24 @@ const Home: NextPage = () => {
     for (let i = 0; i < newFiles.length; i++) {
       const newFile = newFiles[i];
       if (newFile !== undefined) {
-        const fileType = newFile.type ?? "invalidFormat";
-        const validImageTypes = ["image/gif", "image/jpeg", "image/png"];
-        if (validImageTypes.includes(fileType)) {
-          setFile([...files, newFile]);
-        } else {
-          setMessage("only images accepted");
-        }
+        const reader = new FileReader();
+        // if (!blob || typeof blob === "string") continue;
+        reader.readAsDataURL(newFile);
+        reader.onload = function () {
+          const blob = reader.result;
+          if (typeof blob !== "string") return;
+          const base64String = blob.split(",")[1];
+          const fileType = newFile.type ?? "invalidFormat";
+          const validImageTypes = ["image/gif", "image/jpeg", "image/png"];
+          if (validImageTypes.includes(fileType) && base64String) {
+            setFile([
+              ...files,
+              { name: newFile.name, blob: blob, base64String: base64String },
+            ]);
+          } else {
+            setMessage("only images accepted");
+          }
+        };
       }
     }
   };
@@ -101,47 +176,21 @@ const Home: NextPage = () => {
 
   const submitForm = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const myHeaders = new Headers();
     const todo: Todo = {
-      id: uuid(),
       todoTitle: event.currentTarget.todoTitle.value,
       todoContent: event.currentTarget.todoContent.value,
-      todoImages: [...files],
+      todoImages: JSON.stringify(files.map((file) => file.base64String)),
       status: "open",
     };
 
     const formData = new FormData();
     Object.entries(todo).forEach(([key, value]) => {
-      if (typeof value === "string") return formData.append(key, value);
+      value = typeof value === "object" ? JSON.stringify(value) : value;
+      return formData.append(key, value);
     });
 
-    for (let i = 0; i < Math.min(todo?.todoImages?.length ?? 0, 5); i++) {
-      const blob = todo?.todoImages?.[i];
-      if (blob) formData.append("uploads", blob);
-    }
-
-    const requestOptions: RequestInit = {
-      method: "POST",
-      headers: myHeaders,
-      body: formData,
-      credentials: "include",
-    };
     try {
-      const newTodos = [...todos, todo];
-      setTodos(newTodos);
-      const mode = process.env.MODE;
-      const url =
-        mode === "dev"
-          ? `http://localhost:8000/support/ticket`
-          : `https://api.inside-nfts.com/support/ticket`;
-      const response = await fetch(url, requestOptions);
-      if (true) {
-        (document?.getElementById("todoForm") as HTMLFormElement)?.reset();
-        setFile([]);
-        setFormState("sent");
-      } else {
-        setFormState("error");
-      }
+      addTodoMutation(formData);
     } catch (e) {
       console.log(e);
     }
@@ -205,11 +254,13 @@ const Home: NextPage = () => {
 export default Home;
 
 type Todo = {
-  id: string;
+  id?: string;
   todoTitle: string;
   todoContent: string;
   status: string;
-  todoImages?: File[];
+  todoImages?: string | string[];
+  created_at?: string;
+  updated_at?: string;
 };
 
 type TodoCardProps = {
@@ -249,24 +300,27 @@ const TodoCard: React.FC<TodoCardProps> = ({
           {todo.todoContent}
         </p>
         <div className="mt-12 flex w-full items-center justify-end space-x-2">
-          {todo?.todoImages?.map((image, i) => {
-            return (
-              <div
-                key={i}
-                className={`${
-                  todo.status === "done" ? "pointer-events-none opacity-30" : ""
-                }`}
-              >
-                <Image
-                  width="50"
-                  height="50"
-                  alt=""
-                  className="h-full w-full rounded"
-                  src={URL.createObjectURL(image)}
-                />
-              </div>
-            );
-          })}
+          {Array.isArray(todo?.todoImages) &&
+            todo?.todoImages?.map((image, i) => {
+              return (
+                <div
+                  key={i}
+                  className={`${
+                    todo.status === "done"
+                      ? "pointer-events-none opacity-30"
+                      : ""
+                  }`}
+                >
+                  <Image
+                    width="50"
+                    height="50"
+                    alt=""
+                    className="h-full w-full rounded"
+                    src={image}
+                  />
+                </div>
+              );
+            })}
         </div>
         <div className="mt-6 flex w-full items-center justify-end space-x-2">
           <div className="mr-auto mt-2">
@@ -299,10 +353,12 @@ const TodoCard: React.FC<TodoCardProps> = ({
   );
 };
 
+type FileDetails = { name: string; blob: string; base64String: string };
+
 type TodoFormProps = {
   formState: string;
   message: string;
-  files: File[];
+  files: FileDetails[];
   submitForm: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
   handleFile: (e: Event<HTMLInputElement>) => void;
   removeImage: (name: string) => void;
@@ -411,7 +467,7 @@ const TodoForm: React.FC<TodoFormProps> = ({
             </div>
             <div className="mt-4 w-full rounded-md">
               <div className="mt-2 flex flex-wrap gap-2">
-                {files.map((file: File, key) => {
+                {files.map((file: FileDetails, key) => {
                   return (
                     <div
                       key={key}
@@ -424,7 +480,7 @@ const TodoForm: React.FC<TodoFormProps> = ({
                             height="100"
                             alt=""
                             className="h-full w-full rounded"
-                            src={URL.createObjectURL(file)}
+                            src={file.blob}
                           />
                         </div>
                         <span className="w-44 truncate">{file.name}</span>
