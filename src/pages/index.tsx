@@ -14,6 +14,15 @@ const Home: NextPage = () => {
   const qc = useQueryClient();
   const fetchTodos = async () => {
     const res = await axios.get("http://localhost:8888/api/todos");
+    res.data.sort(function (a: Todo, b: Todo) {
+      if (!a.created_at || !b.created_at) return 0;
+      const keyA = new Date(a.created_at);
+      const keyB = new Date(b.created_at);
+      // Compare the 2 dates
+      if (keyA < keyB) return -1;
+      if (keyA > keyB) return 1;
+      return 0;
+    });
     return res.data;
   };
   const addTodo = async (formData: FormData) => {
