@@ -214,7 +214,7 @@ const Home: NextPage = () => {
       </Head>
       <main className="container mx-auto flex min-h-screen flex-col items-center  p-4">
         <h1 className="text-5xl font-extrabold leading-normal text-gray-700 md:text-[5rem]">
-          magna<span className="text-purple-300">Todo</span>
+          magna<span className="text-purple-300">Todo Demo</span>
         </h1>
         {showModal && todoToEdit ? (
           <TodoEdit
