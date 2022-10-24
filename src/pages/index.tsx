@@ -13,7 +13,7 @@ interface Event<T = EventTarget> {
 const Home: NextPage = () => {
   const qc = useQueryClient();
   const fetchTodos = async () => {
-    const res = await axios.get("http://localhost:8888/api/todos");
+    const res = await axios.get("http://magna-back-magna-dev.pke-magna.providus.rs/api/todos");
     res.data.sort(function (a: Todo, b: Todo) {
       if (!a.created_at || !b.created_at) return 0;
       const keyA = new Date(a.created_at);
@@ -26,7 +26,7 @@ const Home: NextPage = () => {
     return res.data;
   };
   const addTodo = async (formData: FormData) => {
-    const res = await axios.post("http://localhost:8888/api/todos", formData, {
+    const res = await axios.post("http://magna-back-magna-dev.pke-magna.providus.rs/api/todos", formData, {
       headers: {
         "Content-Type": "multipart/form-data",
       },
@@ -35,20 +35,20 @@ const Home: NextPage = () => {
   };
   const editTodo = async (todo: Todo) => {
     const res = await axios.patch(
-      "http://localhost:8888/api/todos/" + todo.id,
+      "http://magna-back-magna-dev.pke-magna.providus.rs/api/todos/" + todo.id,
       todo
     );
     return res.data;
   };
   const updateTodo = async (todo: Todo) => {
     const res = await axios.patch(
-      "http://localhost:8888/api/todos/" + todo.id,
+      "http://magna-back-magna-dev.pke-magna.providus.rs/api/todos/" + todo.id,
       { status: todo.status }
     );
     return res.data;
   };
   const deleteTodo = async (todoId: string) => {
-    const res = await axios.delete("http://localhost:8888/api/todos/" + todoId);
+    const res = await axios.delete("http://magna-back-magna-dev.pke-magna.providus.rs/api/todos/" + todoId);
     return res.data;
   };
   const defaultTodos = [
